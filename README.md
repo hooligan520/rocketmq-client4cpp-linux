@@ -11,3 +11,6 @@
 
 ### 发展规划
 * 支持完整的事务消息
+
+Fork from [RocketMQ-Client4CPP](https://github.com/NDPMediaCorp/RocketMQ-Client4CPP)
+
