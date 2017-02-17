@@ -5,7 +5,7 @@ Fork from [RocketMQ-Client4CPP](https://github.com/NDPMediaCorp/RocketMQ-Client4
 
 ### 主要贡献者
 * @[kangliqiang](https://github.com/kangliqiang)
-* @[suwenkuang](suwenkuang@tencent.com)
+* @[hooligan](79015166@qq.com)
 
 ### 目前现状
 * 在原来的基础上修复了很多coredump，以及内存泄露（valgrind）问题，增加命名空间，补齐一些功能
