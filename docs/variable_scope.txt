@@ -1,0 +1,36 @@
+1 ResponseFuture
+    invokeSyncImpl 创建 --删除
+    invokeAsyncImpl 创建并加入表->ProcessDataWork(线程池工作线程)->ProcessData-》processResponseCommand从表中删除
+        ->执行本身的回调函数-》delete this；
+2 RemotingCommand
+    主动请求类型：
+        各调用函数创建 并销毁
+    接收应答类型：ProcessData处理数据时创建
+        同步方式：
+            调用RemotingClient：：invokeSync函数后即可删除
+
+        异步方式：->ResponseFuture::executeInvokeCallback-> InvokeCallback::operationComplete(this)
+            ->MQClientAPIImpl->processPullResponse()->delete;
+
+
+3 ConsumerInvokeCallback
+    MQClientAPIImpl::pullMessageAsync创建->RemotingClient::invokeAsync->ResponseFuture->operationComplete->delete
+
+4  roducerInvokeCallback
+    MQClientAPIImpl::sendMessageAsync创建->RemotingClient::invokeAsync->ResponseFuture->operationComplete->delete
+    
+5  PullResult
+    在pushconsumer中：
+        MQClientAPIImpl：：processPullResponse 创建->DefaultMQPushConsumerImplCallback::onSuccess
+        ->消息传给ProcessQueue同时调用submitConsumeRequest消费消息
+        MQClientAPIImpl：：processPullResponse delete，由于消息在上一步传出，所以要先清空本身消息
+    在pullconsumer中： 
+6 ProcessQueue
+    RebalanceImpl::updateProcessQueueTableInRebalance创建 ->RebalanceImpl::processQueueTable和PullRequest持有同一个对象
+    同时会加入ConsumeConcurrentlyRequest中，
+7 PullRequest
+    RebalanceImpl::updateProcessQueueTableInRebalance创建
+    
+8 MessageExt
+    在pushconsumer中：
+        PullAPIWrapper::processPullResult创建-》PullResult-》ProcessQueue->ProcessQueue::removeMessage
