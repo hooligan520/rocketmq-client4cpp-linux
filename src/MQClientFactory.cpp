@@ -1159,8 +1159,8 @@ void MQClientFactory::logStatsPeriodically()
 
 void MQClientFactory::persistAllConsumerOffset()
 {
-    RMQ_DEBUG("persistAllConsumerOffset, m_consumerTable.size=%u", (unsigned)m_consumerTable.size());
     kpr::ScopedRLock<kpr::RWMutex> lock(m_consumerTableLock);
+    RMQ_DEBUG("persistAllConsumerOffset, m_consumerTable.size=%u", (unsigned)m_consumerTable.size());
     std::map<std::string, MQConsumerInner*>::iterator it = m_consumerTable.begin();
     for (; it != m_consumerTable.end(); it++)
     {

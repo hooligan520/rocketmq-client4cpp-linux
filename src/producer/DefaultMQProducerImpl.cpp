@@ -662,6 +662,7 @@ SendResult DefaultMQProducerImpl::sendDefaultImpl(Message& msg,
 
 		std::string info = RocketMQUtil::str2fmt("Send [%d] times, still failed, cost [%d]ms, Topic: %s, BrokersSent: %s",
 			times, int(endTimestamp - beginTimestamp), msg.getTopic().c_str(), UtilAll::toString(brokersSent).c_str());
+		RMQ_WARN("%s", info.c_str());
         THROW_MQEXCEPTION(MQClientException, info, -1);
         return sendResult;
     }

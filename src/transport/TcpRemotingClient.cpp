@@ -53,7 +53,7 @@ void ProcessDataWork::Do()
 // 连接锁超时
 int TcpRemotingClient::s_LockTimeoutMillis = 3000;
 // 定时器检查间隔
-int TcpRemotingClient::s_CheckIntervalMillis = 3000;
+int TcpRemotingClient::s_CheckIntervalMillis = 1000;
 
 TcpRemotingClient::TcpRemotingClient(const RemoteClientConfig& config)
     : m_stop(false), m_epoller(false), m_config(config)
@@ -102,7 +102,7 @@ void TcpRemotingClient::run()
     {
         try
         {
-            int nfds = m_epoller.wait(1000);
+            int nfds = m_epoller.wait(500);
             if (nfds > 0)
             {
                 int ret = 0;
@@ -133,7 +133,7 @@ void TcpRemotingClient::run()
                         ret = pTts->recvData(dataList);
                         if (ret < 0)
                         {
-                        	RMQ_ERROR("recvData fail, ret=%d, pts=%p", ret, pTts);
+                        	RMQ_ERROR("recvData fail, ret=%d, errno=%d, pts=%p", ret, NET_ERROR, pTts);
                             errTts.push_back(pTts);
                         }
 
@@ -763,13 +763,8 @@ void TcpRemotingClient::processResponseCommand(TcpTransport* pTts, RemotingComma
 int TcpRemotingClient::sendCmd(TcpTransport* pTts, RemotingCommand* pRequest, int timeoutMillis)
 {
     pRequest->encode();
+    int ret = pTts->sendData(pRequest->getData(), pRequest->getDataLen(), timeoutMillis);
 
-    long long endTime = KPRUtil::GetCurrentTimeMillis() + timeoutMillis;
-    int ret = pTts->sendData(pRequest->getHead(), pRequest->getHeadLen(), timeoutMillis);
-    if (ret == 0 && pRequest->getBody())
-    {
-        ret = pTts->sendData(pRequest->getBody(), pRequest->getBodyLen(), endTime - KPRUtil::GetCurrentTimeMillis());
-    }
     RMQ_DEBUG("[NETWORK]: SEND => {%s}, {opaque=%d, request.code=%s(%d), ret=%d, timeout=%d}, %s",
     	pTts->getServerAddr().c_str(), pRequest->getOpaque(),
     	getMQRequestCodeString(pRequest->getCode()), pRequest->getCode(),

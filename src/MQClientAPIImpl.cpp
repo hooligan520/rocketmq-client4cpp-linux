@@ -1045,7 +1045,10 @@ TopicRouteData* MQClientAPIImpl::getTopicRouteInfoFromNameServer(const std::stri
         {
             case TOPIC_NOT_EXIST_VALUE:
             {
-            	RMQ_WARN("get Topic [{%s}] RouteInfoFromNameServer is not exist value", topic.c_str());
+            	if (topic != MixAll::DEFAULT_TOPIC)
+            	{
+            		RMQ_WARN("get Topic [{%s}] RouteInfoFromNameServer is not exist value", topic.c_str());
+            	}
                 break;
             }
             case SUCCESS_VALUE:

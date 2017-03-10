@@ -3,31 +3,62 @@
 using namespace rmq;
 
 
+#define MYDEBUG(fmt, args...) 	printf(fmt, ##args)
+#define MYLOG(fmt, args...) 	writelog(fmt, ##args)
+
+std::string g_log_path = "";
+volatile long long g_totalCnt = 0;
+
+static void writelog(const char* fmt, ...)
+{
+	if (g_log_path.empty())
+	{
+		return;
+	}
+
+    static int logFd = -1;
+	if (logFd < 0)
+	{
+		logFd = open(g_log_path.c_str(), O_CREAT | O_RDWR | O_APPEND, 0666);
+	}
+
+    if (logFd > 0)
+    {
+    	char buf[1024*128];
+	    buf[0] = buf[sizeof(buf) - 1] = '\0';
+
+	    va_list ap;
+	    va_start(ap, fmt);
+	    int size = vsnprintf(buf, sizeof(buf), fmt, ap);
+	    va_end(ap);
+
+        write(logFd, buf, size);
+    }
+
+    return;
+}
+
 void PrintResult(PullResult& result)
 {
-	std::cout<<"result: [pullStatus="<<result.pullStatus
-		<<"][nextBeginOffset="<<result.nextBeginOffset
-		<<"][minOffset="<<result.minOffset
-		<<"][maxOffset="<<result.maxOffset
-		<<"]"<<std::endl;
-
 	std::list<MessageExt*>::iterator it = result.msgFoundList.begin();
-
 	for (;it!=result.msgFoundList.end();it++)
 	{
 		MessageExt* me = *it;
 		std::string str;
 		str.assign(me->getBody(),me->getBodyLen());
-		std::cout<<str<<std::endl;
+
+		int cnt = __sync_fetch_and_add(&g_totalCnt, 1);
+		MYLOG("[%d]|%s|%s\n",  cnt, me->toString().c_str(), str.c_str());
 	}
 }
 
 
 void Usage(const char* program)
 {
-	printf("Usage:%s ip:port [-g group] [-t topic]\n", program);
-	printf("\t -g group\n");
+	printf("Usage:%s ip:port [-g group] [-t topic] [-w logpath]\n", program);
+	printf("\t -g consumer group\n");
 	printf("\t -t topic\n");
+	printf("\t -w log path\n");
 }
 
 
@@ -42,9 +73,23 @@ int main(int argc, char* argv[])
 	std::string namesrv = argv[1];
 	std::string group = "cg_test_pull_group";
 	std::string topic = "topic_test";
+	g_print_msg = 0;
 	for (int i=2; i< argc; i++)
 	{
-		if (strcmp(argv[i],"-t")==0)
+		if (strcmp(argv[i],"-g")==0)
+		{
+			if (i+1 < argc)
+			{
+				group = argv[i+1];
+				i++;
+			}
+			else
+			{
+				Usage(argv[0]);
+				return 0;
+			}
+		}
+		else if (strcmp(argv[i],"-t")==0)
 		{
 			if (i+1 < argc)
 			{
@@ -57,11 +102,11 @@ int main(int argc, char* argv[])
 				return 0;
 			}
 		}
-		else if (strcmp(argv[i],"-g")==0)
+		else if (strcmp(argv[i],"-w")==0)
 		{
 			if (i+1 < argc)
 			{
-				group = argv[i+1];
+				g_log_path = argv[i+1];
 				i++;
 			}
 			else
@@ -134,13 +179,6 @@ int main(int argc, char* argv[])
 						offset = LLONG_MAX;
                     }
                 }
-
-                std::cout
-                	<< "request: [topic=" << mq.getTopic()
-                	<< ", brokerName=" << mq.getBrokerName()
-                	<< ", queueId=" << mq.getQueueId()
-                	<< ", offset=" << offset
-                	<< "]" << std::endl;
 
 				// 拉取消息
 				RMQ_DEBUG("consumer.pullBlockIfNotFound");

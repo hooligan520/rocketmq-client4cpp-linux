@@ -83,9 +83,8 @@ namespace rmq
         void encode();
         std::string toString() const;
 
-        const char* getHead();
-        int getHeadLen();
-        void setHead(char* pData, int len);
+        const char* getData();
+        int getDataLen();
 
         const char* getBody();
         int getBodyLen();
@@ -138,8 +137,8 @@ namespace rmq
         std::string m_remark;
         CommandCustomHeader* m_pCustomHeader;
 
-        int m_headLen;
-        char* m_pHead;
+        int m_dataLen;
+        char* m_pData;
 
         int m_bodyLen;
         char* m_pBody;

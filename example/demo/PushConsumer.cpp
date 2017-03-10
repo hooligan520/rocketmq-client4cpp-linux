@@ -3,15 +3,63 @@
 using namespace rmq;
 
 
-#if 1
-#define MYDEBUG(fmt, args...) do { printf(fmt, ##args);}while(0)
-#else
-#define MYDEBUG(fmt, args...)
-#endif
+#define MYDEBUG(fmt, args...) 	printf(fmt, ##args)
+#define MYLOG(fmt, args...) 	writelog(fmt, ##args)
 
+std::string g_log_path = "";
 volatile long long g_lastCnt = 0;
 volatile long long g_totalCnt = 0;
 long long g_lastUpdateTime = 0;
+
+static void writelog(const char* fmt, ...)
+{
+	if (g_log_path.empty())
+	{
+		return;
+	}
+
+    static int logFd = -1;
+	if (logFd < 0)
+	{
+		logFd = open(g_log_path.c_str(), O_CREAT | O_RDWR | O_APPEND, 0666);
+	}
+
+    if (logFd > 0)
+    {
+    	char buf[1024*128];
+	    buf[0] = buf[sizeof(buf) - 1] = '\0';
+
+	    va_list ap;
+	    va_start(ap, fmt);
+	    int size = vsnprintf(buf, sizeof(buf), fmt, ap);
+	    va_end(ap);
+
+        write(logFd, buf, size);
+    }
+
+    return;
+}
+
+static std::string bin2str(const std::string& strBin)
+{
+	if(strBin.size() == 0)
+	{
+		return "";
+	}
+
+	std::string sOut;
+    const char *p = (const char *)strBin.data();
+    size_t len = strBin.size();
+
+    char sBuf[255];
+    for (size_t i = 0; i < len; ++i, ++p)
+	{
+        snprintf(sBuf, sizeof(sBuf), "%02x", (unsigned char) *p);
+		sOut += sBuf;
+    }
+
+    return sOut;
+}
 
 
 class MsgListener : public MessageListenerConcurrently
@@ -37,7 +85,7 @@ public:
 	ConsumeConcurrentlyStatus consumeMessage(std::list<MessageExt*>& msgs,
 											ConsumeConcurrentlyContext& context)
 	{
-		__sync_fetch_and_add(&g_totalCnt, 1);
+		int cnt = __sync_fetch_and_add(&g_totalCnt, 1);
 		long long now = MyUtil::getNowMs();
 		long long old = g_lastUpdateTime;
 		if ((now - old) >= 1000)
@@ -48,7 +96,7 @@ public:
 				int tps = (int)((g_totalCnt - g_lastCnt) * 1.0 / time * 1000.0);
 				g_lastCnt = g_totalCnt;
 
-				std::cout << "[consume] msgcount: " << g_totalCnt << ", TPS: " << tps << std::endl;
+				MYDEBUG("[consume]msgcount: %lld, TPS: %d\n", g_totalCnt, tps);
 			}
 		}
 
@@ -74,7 +122,12 @@ public:
 			std::string str;
 			str.assign(me->getBody(),me->getBodyLen());
 
-			MYDEBUG("[%d]: %s\n",  g_totalCnt, me->toString().c_str());
+			MYLOG("[%d]|%s|%s\n",  cnt, me->toString().c_str(), str.c_str());
+
+			if (str.substr(0, 4) != "this")
+			{
+				MYLOG("[%d]|invalid msg|%s|%s\n",  cnt, me->toString().c_str(), bin2str(str).c_str());
+			}
 		}
 
 		consumeTimes++;
@@ -108,9 +161,10 @@ public:
 
 void Usage(const char* program)
 {
-	printf("Usage:%s ip:port [-g group] [-t topic]\n", program);
-	printf("\t -g group\n");
+	printf("Usage:%s ip:port [-g group] [-t topic] [-w logpath]\n", program);
+	printf("\t -g consumer group\n");
 	printf("\t -t topic\n");
+	printf("\t -w log path\n");
 }
 
 
@@ -145,6 +199,19 @@ int main(int argc, char* argv[])
 			if (i+1 < argc)
 			{
 				topic = argv[i+1];
+				i++;
+			}
+			else
+			{
+				Usage(argv[0]);
+				return 0;
+			}
+		}
+		else if (strcmp(argv[i],"-w")==0)
+		{
+			if (i+1 < argc)
+			{
+				g_log_path = argv[i+1];
 				i++;
 			}
 			else

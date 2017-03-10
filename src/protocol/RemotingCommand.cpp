@@ -32,8 +32,8 @@ volatile int RemotingCommand::s_configVersion = MQVersion::s_CurrentVersion;
 
 RemotingCommand::RemotingCommand(int code)
     : m_code(code), m_language("CPP"), m_version(0), m_opaque(s_seqNumber++),
-      m_flag(0), m_remark(""), m_pCustomHeader(NULL), m_headLen(0), m_pHead(NULL),
-      m_bodyLen(0), m_pBody(NULL), m_releaseBody(false)
+      m_flag(0), m_remark(""), m_pCustomHeader(NULL),
+      m_dataLen(0), m_pData(NULL), m_bodyLen(0), m_pBody(NULL), m_releaseBody(false)
 {
 }
 
@@ -46,16 +46,16 @@ RemotingCommand::RemotingCommand(int code,
                                  CommandCustomHeader* pCustomHeader)
     : m_code(code), m_language(language), m_version(version), m_opaque(opaque),
       m_flag(flag), m_remark(remark), m_pCustomHeader(pCustomHeader),
-      m_headLen(0), m_pHead(NULL), m_bodyLen(0), m_pBody(NULL), m_releaseBody(false)
+      m_dataLen(0), m_pData(NULL), m_bodyLen(0), m_pBody(NULL), m_releaseBody(false)
 {
 
 }
 
 RemotingCommand::~RemotingCommand()
 {
-	if (m_pHead)
+	if (m_pData)
 	{
-    	delete[] m_pHead;
+    	delete[] m_pData;
     }
 
     if (m_releaseBody)
@@ -92,17 +92,30 @@ void RemotingCommand::encode()
        << extFields_STRING << extHeader
        << "}";
 
+	/* 协议格式:
+	 * | 4        | 4           | headerlen    | bodylen    |
+	 * | 1-length | 2-headerlen | 3-headerdata | 4-bodydata |
+	 */
     int headLen = ss.str().size();
-    m_headLen = 4 + 4 + headLen;
-    m_pHead = new char[m_headLen];
+    m_dataLen = 8 + headLen + m_bodyLen;
+    m_pData = new char[m_dataLen];
 
-    int tmp = htonl(m_headLen + m_bodyLen - 4);
-    memcpy(m_pHead, &tmp, 4);
+	//length = len(2 + 3 + 4)
+    int tmp = htonl(4 + headLen + m_bodyLen);
+    memcpy(m_pData, &tmp, 4);
 
+	//headerlength = len(3)
     tmp = htonl(headLen);
-    memcpy(m_pHead + 4, &tmp, 4);
+    memcpy(m_pData + 4, &tmp, 4);
 
-    memcpy(m_pHead + 8, ss.str().c_str(), headLen);
+    //headerdata
+    memcpy(m_pData + 8, ss.str().c_str(), headLen);
+
+    //bodydata
+    if (m_pBody)
+    {
+    	memcpy(m_pData + 8 + headLen, m_pBody, m_bodyLen);
+    }
 
     //RMQ_DEBUG("encode|%s%s", ss.str().c_str(), m_pBody ? std::string(m_pBody, m_bodyLen).c_str() : "");
 }
@@ -138,20 +151,14 @@ std::string RemotingCommand::toString() const
 }
 
 
-const char* RemotingCommand::getHead()
+const char* RemotingCommand::getData()
 {
-    return m_pHead;
+    return m_pData;
 }
 
-int RemotingCommand::getHeadLen()
+int RemotingCommand::getDataLen()
 {
-    return m_headLen;
-}
-
-void RemotingCommand::setHead(char* pHead, int len)
-{
-    m_pHead = pHead;
-    m_headLen = len;
+    return m_dataLen;
 }
 
 const char* RemotingCommand::getBody()
