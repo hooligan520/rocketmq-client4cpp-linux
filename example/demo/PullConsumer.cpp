@@ -73,7 +73,7 @@ int main(int argc, char* argv[])
 	std::string namesrv = argv[1];
 	std::string group = "cg_test_pull_group";
 	std::string topic = "topic_test";
-	g_print_msg = 0;
+
 	for (int i=2; i< argc; i++)
 	{
 		if (strcmp(argv[i],"-g")==0)
