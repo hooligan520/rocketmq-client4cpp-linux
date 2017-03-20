@@ -37,11 +37,11 @@ ProducerInvokeCallback::ProducerInvokeCallback(SendCallback* pSendCallBack,
 
 ProducerInvokeCallback::~ProducerInvokeCallback()
 {
-    if (m_pSendCallBack != NULL)
-    {
-        delete m_pSendCallBack;
-        m_pSendCallBack = NULL;
-    }
+	if (m_pSendCallBack)
+	{
+		delete m_pSendCallBack;
+		m_pSendCallBack = NULL;
+	}
 }
 
 void ProducerInvokeCallback::operationComplete(ResponseFuturePtr pResponseFuture)
@@ -60,6 +60,7 @@ void ProducerInvokeCallback::operationComplete(ResponseFuturePtr pResponseFuture
             SendResult* sendResult =
                 m_pMQClientAPIImpl->processSendResponse(m_brokerName, m_topic, response);
 
+			assert(sendResult != NULL);
             m_pSendCallBack->onSuccess(*sendResult);
 
             delete sendResult;
@@ -75,21 +76,19 @@ void ProducerInvokeCallback::operationComplete(ResponseFuturePtr pResponseFuture
     {
         if (!pResponseFuture->isSendRequestOK())
         {
-            //"send request failed", responseFuture .getCause()
             std::string msg = "send request failed";
             MQClientException e(msg, -1, __FILE__, __LINE__);
             m_pSendCallBack->onException(e);
         }
         else if (pResponseFuture->isTimeout())
         {
-            //wait response timeout "+ responseFuture.getTimeoutMillis() + "ms", responseFuture.getCause()
-            std::string msg = "wait response timeout";
+            std::string msg = RocketMQUtil::str2fmt("wait response timeout %lld ms",
+            	pResponseFuture->getTimeoutMillis());
             MQClientException e(msg, -1, __FILE__, __LINE__);
             m_pSendCallBack->onException(e);
         }
         else
         {
-            // "unknow reseaon", responseFuture .getCause()
             std::string msg = "unknow reseaon";
             MQClientException e(msg, -1, __FILE__, __LINE__);
             m_pSendCallBack->onException(e);

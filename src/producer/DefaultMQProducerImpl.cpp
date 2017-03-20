@@ -734,10 +734,21 @@ SendResult DefaultMQProducerImpl::sendKernelImpl(Message& msg,
 			if (requestHeader->topic.find(MixAll::RETRY_GROUP_TOPIC_PREFIX) == 0)
 			{
                 std::string reconsumeTimes = msg.getProperty(Message::PROPERTY_RECONSUME_TIME);
-                if (!reconsumeTimes.empty()) {
+                if (!reconsumeTimes.empty())
+                {
                     requestHeader->reconsumeTimes = int(UtilAll::str2ll(reconsumeTimes.c_str()));
                     msg.clearProperty(Message::PROPERTY_RECONSUME_TIME);
                 }
+
+				/*
+				3.5.8版本增加的特性
+                std::string maxReconsumeTimes = msg.getProperty(Message::PROPERTY_MAX_RECONSUME_TIMES);
+                if (!maxReconsumeTimes.empty())
+                {
+                    requestHeader->maxReconsumeTimes = int(UtilAll::str2ll(maxReconsumeTimes.c_str()));
+                    msg.clearProperty(Message::PROPERTY_MAX_RECONSUME_TIMES);
+                }
+                */
             }
 
             SendResult sendResult = m_pMQClientFactory->getMQClientAPIImpl()->sendMessage(

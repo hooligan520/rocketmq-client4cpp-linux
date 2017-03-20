@@ -1,11 +1,11 @@
 #!/bin/sh
 TOPDIR=../..
 
-CFLAGS=-g -fno-omit-frame-pointer
+CFLAGS=-g -ggdb -Wno-deprecated -fno-strict-aliasing -fno-omit-frame-pointer
 INCLUDE=-I${TOPDIR}/include
 LIB=-L${TOPDIR}/lib64 -lrocketmq -lz -lrt -lpthread
-TARGET=Producer PullConsumer PushConsumer
-DEPEND_OBJ=
+TARGET=Producer AsyncProducer PullConsumer PushConsumer
+DEPEND_OBJ=Common.o
 
 
 LOCAL_SRC += $(sort $(wildcard *.cpp *.cc *.c))
@@ -19,6 +19,9 @@ clean:
 	@echo "clean succ!"
 
 Producer:Producer.o ${DEPEND_OBJ}
+	$(CXX) $(CFLAGS) -o $@ $^ $(INCLUDE) $(LIB)
+
+AsyncProducer:AsyncProducer.o ${DEPEND_OBJ}
 	$(CXX) $(CFLAGS) -o $@ $^ $(INCLUDE) $(LIB)
 
 PullConsumer:PullConsumer.o ${DEPEND_OBJ}

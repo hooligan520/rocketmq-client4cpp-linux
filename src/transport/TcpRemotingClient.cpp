@@ -50,13 +50,9 @@ void ProcessDataWork::Do()
     }
 }
 
-// 连接锁超时
-int TcpRemotingClient::s_LockTimeoutMillis = 3000;
-// 定时器检查间隔
-int TcpRemotingClient::s_CheckIntervalMillis = 1000;
-
 TcpRemotingClient::TcpRemotingClient(const RemoteClientConfig& config)
-    : m_stop(false), m_epoller(false), m_config(config)
+    : m_stop(false), m_epoller(false), m_config(config),
+      m_semaphoreOneway(s_ClientOnewaySemaphoreValue), m_semaphoreAsync(s_ClientAsyncSemaphoreValue)
 {
     m_pNetThreadPool = new kpr::ThreadPool("NetClientThreadPool", 5, 5, 20);
     m_pEventThread = new EventThread(*this);
@@ -460,7 +456,7 @@ void TcpRemotingClient::scanResponseTable()
 	for(typeof(m_responseTable.begin()) it = m_responseTable.begin();it != m_responseTable.end();)
 	{
 		long long diffTime = KPRUtil::GetCurrentTimeMillis() - it->second->getBeginTimestamp();
-		if (m_stop || (diffTime > it->second->getTimeoutMillis() + 3000))
+		if (m_stop || (diffTime > it->second->getTimeoutMillis() + 2000))
 		{
 			RMQ_WARN("remove timeout request, %lld, %s", diffTime, it->second->toString().c_str());
 			try
@@ -471,6 +467,7 @@ void TcpRemotingClient::scanResponseTable()
 			{
 				RMQ_WARN("scanResponseTable, operationComplete Exception");
 			}
+			it->second->release();
 			m_responseTable.erase(it++);
 		}
 		else
@@ -536,11 +533,9 @@ RemotingCommand* TcpRemotingClient::invokeSyncImpl(TcpTransport* pTts,
         RemotingCommand* pRequest,
         int timeoutMillis)
 {
-    ResponseFuturePtr pResponseFuture = new ResponseFuture(pRequest->getCode(),
-            pRequest->getOpaque(),
-            timeoutMillis,
-            NULL,
-            true);
+    ResponseFuturePtr pResponseFuture = new ResponseFuture(
+    	pRequest->getCode(), pRequest->getOpaque(), timeoutMillis,
+        NULL, true, NULL);
     {
         kpr::ScopedWLock<kpr::RWMutex> lock(m_responseTableLock);
         m_responseTable.insert(std::pair<int, ResponseFuturePtr>(pRequest->getOpaque(), pResponseFuture));
@@ -574,77 +569,130 @@ RemotingCommand* TcpRemotingClient::invokeSyncImpl(TcpTransport* pTts,
         // 发送请求成功，读取应答超时
         if (ret == 0)
         {
-            //std::string str;
-            //str.append("send pRequest[").append(pRequest->toString()).append("] to <")
-            //	.append(pTts->GetServerAddr()).append("> timeout");
-            THROW_MQEXCEPTION(RemotingTimeoutException, "send pRequest timeout", -1);
+            std::stringstream oss;
+            oss << "wait response on the channel <" << pTts->getServerAddr() << "> timeout," << timeoutMillis << "ms";
+            THROW_MQEXCEPTION(RemotingTimeoutException, oss.str(), -1);
         }
         else// 发送请求失败
         {
-        	//std::string str;
-            //str.append("send pRequest[").append(pRequest->toString()).append("] to <")
-            //	.append(pTts->GetServerAddr()).append("> fail");
-            //ss << "send pRequest[" << pRequest->toString() << "] to <" << pTts->GetServerAddr() <<"> fail";
-            THROW_MQEXCEPTION(RemotingSendRequestException, "send pRequest fail", -1);
+            std::stringstream oss;
+            oss << "send request to <" << pTts->getServerAddr() << "> failed";
+            THROW_MQEXCEPTION(RemotingSendRequestException, oss.str(), -1);
         }
     }
 
     return pResponse;
 }
 
-int TcpRemotingClient::invokeAsyncImpl(TcpTransport* pTts,
+void TcpRemotingClient::invokeAsyncImpl(TcpTransport* pTts,
                                        RemotingCommand* pRequest,
                                        int timeoutMillis,
                                        InvokeCallback* pInvokeCallback)
 {
-    ResponseFuturePtr pResponseFuture = new ResponseFuture(pRequest->getCode(),
-            pRequest->getOpaque(),
-            timeoutMillis,
-            pInvokeCallback,
-            true);
-    {
-        kpr::ScopedWLock<kpr::RWMutex> lock(m_responseTableLock);
-        m_responseTable.insert(std::pair<int, ResponseFuturePtr>(pRequest->getOpaque(), pResponseFuture));
-    }
+	bool acquired = m_semaphoreAsync.Wait(timeoutMillis);
+	if (acquired)
+	{
+	    ResponseFuturePtr pResponseFuture = new ResponseFuture(
+	    	pRequest->getCode(), pRequest->getOpaque(), timeoutMillis,
+        	pInvokeCallback, false, &m_semaphoreAsync);
+	    {
+	        kpr::ScopedWLock<kpr::RWMutex> lock(m_responseTableLock);
+	        m_responseTable.insert(std::pair<int, ResponseFuturePtr>(pRequest->getOpaque(), pResponseFuture));
+	    }
 
-    int ret = sendCmd(pTts, pRequest, timeoutMillis);
-    if (ret == 0)
-    {
-        pResponseFuture->setSendRequestOK(true);
+	    int ret = sendCmd(pTts, pRequest, timeoutMillis);
+	    if (ret == 0)
+	    {
+	        pResponseFuture->setSendRequestOK(true);
+	    }
+	    else
+	    {
+	    	pResponseFuture->setSendRequestOK(false);
+	    	pResponseFuture->putResponse(NULL);
+			{
+		        kpr::ScopedWLock<kpr::RWMutex> lock(m_responseTableLock);
+		        std::map<int, ResponseFuturePtr>::iterator it = m_responseTable.find(pRequest->getOpaque());
+		        if (it != m_responseTable.end())
+		        {
+		            m_responseTable.erase(it);
+		        }
+	        }
+
+	    	try
+	    	{
+	    		pResponseFuture->executeInvokeCallback();
+	    	}
+	    	catch (...)
+	    	{
+	            RMQ_WARN("executeInvokeCallback exception");
+	        }
+	        pResponseFuture->release();
+
+	    	RMQ_WARN("send a pRequest command to channel <%s> failed, requet: %s",
+	    		pTts->getServerAddr().c_str(), pRequest->toString().c_str());
+
+			//回调函数中已处理异常，这里不再抛出异常
+	    	//THROW_MQEXCEPTION(RemotingSendRequestException, std::string("send request to <") + pTts->getServerAddr() + "> fail", -1);
+	    }
     }
     else
     {
-    	pResponseFuture->setSendRequestOK(false);
-    	pResponseFuture->putResponse(NULL);
-		{
-	        kpr::ScopedWLock<kpr::RWMutex> lock(m_responseTableLock);
-	        std::map<int, ResponseFuturePtr>::iterator it = m_responseTable.find(pRequest->getOpaque());
-	        if (it != m_responseTable.end())
-	        {
-	            m_responseTable.erase(it);
-	        }
-        }
-
-    	try
+    	if (timeoutMillis <= 0)
     	{
-    		pResponseFuture->executeInvokeCallback();
-    	}
-    	catch (...)
-    	{
-            RMQ_WARN("executeInvokeCallback exception");
+            THROW_MQEXCEPTION(RemotingTooMuchRequestException, "invokeAsyncImpl invoke too fast", -1);
         }
-    	RMQ_WARN("send a pRequest command to channel <%s> failed.", pTts->getServerAddr().c_str());
+        else
+        {
+        	std::string info = RocketMQUtil::str2fmt(
+        		"invokeAsyncImpl wait semaphore timeout, %dms, semaphoreAsyncValue: %d, request: %s",
+                timeoutMillis,
+                m_semaphoreAsync.GetValue(),
+                pRequest->toString().c_str()
+            );
+            RMQ_WARN("%s", info.c_str());
+            THROW_MQEXCEPTION(RemotingTimeoutException, info, -1);
+        }
     }
 
-    return ret;
+    return;
 }
 
 int TcpRemotingClient::invokeOnewayImpl(TcpTransport* pTts,
                                         RemotingCommand* pRequest,
                                         int timeoutMillis)
 {
-    pRequest->markOnewayRPC();
-    sendCmd(pTts, pRequest, timeoutMillis);
+	pRequest->markOnewayRPC();
+
+	bool acquired = m_semaphoreOneway.Wait(timeoutMillis);
+	if (acquired)
+	{
+		int ret = sendCmd(pTts, pRequest, timeoutMillis);
+		m_semaphoreOneway.Release();
+	    if (ret != 0)
+	    {
+	    	RMQ_WARN("send a pRequest command to channel <%s> failed, requet: %s",
+	    		pTts->getServerAddr().c_str(), pRequest->toString().c_str());
+	    	THROW_MQEXCEPTION(RemotingSendRequestException, std::string("send request to <") + pTts->getServerAddr() + "> fail", -1);
+	    }
+    }
+	else
+	{
+		if (timeoutMillis <= 0)
+		{
+			THROW_MQEXCEPTION(RemotingTooMuchRequestException, "invokeOnewayImpl invoke too fast", -1);
+		}
+		else
+		{
+			std::string info = RocketMQUtil::str2fmt(
+				"invokeOnewayImpl wait semaphore timeout, %dms, semaphoreAsyncValue: %d, request: %s",
+				timeoutMillis,
+				m_semaphoreAsync.GetValue(),
+				pRequest->toString().c_str()
+			);
+			RMQ_WARN("%s", info.c_str());
+			THROW_MQEXCEPTION(RemotingTimeoutException, info, -1);
+		}
+	}
 
     return 0;
 }
@@ -742,6 +790,7 @@ void TcpRemotingClient::processResponseCommand(TcpTransport* pTts, RemotingComma
         if (it != m_responseTable.end())
         {
             res = it->second;
+            res->release();
             m_responseTable.erase(it);
         }
     }

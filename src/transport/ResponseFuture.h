@@ -24,6 +24,7 @@
 namespace kpr
 {
 class Monitor;
+class Semaphore;
 }
 
 namespace rmq
@@ -38,10 +39,11 @@ namespace rmq
     class ResponseFuture : public kpr::RefCount
     {
     public:
-        ResponseFuture(int requestCode, int opaque, int timeoutMillis, InvokeCallback* pInvokeCallback, bool block);
+        ResponseFuture(int requestCode, int opaque, int timeoutMillis, InvokeCallback* pInvokeCallback,
+			bool block, kpr::Semaphore* pSem);
         ~ResponseFuture();
         void executeInvokeCallback();
-        void release();
+		void release();
         bool isTimeout();
         RemotingCommand* waitResponse(int timeoutMillis);
         void putResponse(RemotingCommand* pResponseCommand);
@@ -67,8 +69,13 @@ namespace rmq
         long long m_beginTimestamp;
         kpr::Monitor* m_pMonitor;
         bool m_notifyFlag;
+
+		// 保证回调的callback方法至多至少只被执行一次
         kpr::AtomicInteger m_exec;
-        //TODO 确认跟java版的一致性
+
+		// 保证信号量至多至少只被释放一次
+		kpr::Semaphore* m_pSemaphore;
+		kpr::AtomicInteger m_released;
     };
 	typedef kpr::RefHandleT<ResponseFuture> ResponseFuturePtr;
 }

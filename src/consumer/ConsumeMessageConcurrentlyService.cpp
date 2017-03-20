@@ -22,64 +22,12 @@
 #include "DefaultMQPushConsumer.h"
 #include "MixAll.h"
 #include "KPRUtil.h"
+#include "UtilAll.h"
 #include "OffsetStore.h"
 
 namespace rmq
 {
 
-ConsumeMessageConcurrentlyService::ConsumeMessageConcurrentlyService(
-    DefaultMQPushConsumerImpl* pDefaultMQPushConsumerImpl,
-    MessageListenerConcurrently* pMessageListener)
-{
-    m_pDefaultMQPushConsumerImpl = pDefaultMQPushConsumerImpl;
-    m_pMessageListener = pMessageListener;
-    m_pDefaultMQPushConsumer = m_pDefaultMQPushConsumerImpl->getDefaultMQPushConsumer();
-    m_consumerGroup = m_pDefaultMQPushConsumer->getConsumerGroup();
-    m_pConsumeExecutor = new kpr::ThreadPool("ConsumeMessageThreadPool", 5,
-    	m_pDefaultMQPushConsumer->getConsumeThreadMin(), m_pDefaultMQPushConsumer->getConsumeThreadMax());
-    m_scheduledExecutorService = new kpr::TimerThread("ConsumeMessageConcurrentlyService", 1000);
-}
-
-ConsumeMessageConcurrentlyService::~ConsumeMessageConcurrentlyService()
-{
-}
-
-
-void ConsumeMessageConcurrentlyService::start()
-{
-    m_scheduledExecutorService->Start();
-}
-
-void ConsumeMessageConcurrentlyService::shutdown()
-{
-    m_pConsumeExecutor->Destroy();
-    m_scheduledExecutorService->Stop();
-    m_scheduledExecutorService->Join();
-}
-
-ConsumerStat& ConsumeMessageConcurrentlyService::getConsumerStat()
-{
-    return m_pDefaultMQPushConsumerImpl->getConsumerStatManager()->getConsumertat();
-}
-
-bool ConsumeMessageConcurrentlyService::sendMessageBack(MessageExt& msg,
-        ConsumeConcurrentlyContext& context)
-{
-    // 如果用户没有设置，服务器会根据重试次数自动叠加延时时间
-    try
-    {
-        m_pDefaultMQPushConsumerImpl->sendMessageBack(msg,
-        	context.delayLevelWhenNextConsume, context.messageQueue.getBrokerName());
-        return true;
-    }
-    catch (...)
-    {
-		RMQ_ERROR("sendMessageBack exception, group: %s, msg: %s",
-			m_consumerGroup.c_str(), msg.toString().c_str());
-    }
-
-    return false;
-}
 
 class SubmitConsumeRequestLater : public kpr::TimerHandler
 {
@@ -117,12 +65,119 @@ private:
     ConsumeMessageConcurrentlyService* m_pService;
 };
 
+
+class CleanExpireMsgTask : public kpr::TimerHandler
+{
+public:
+    CleanExpireMsgTask(ConsumeMessageConcurrentlyService* pService)
+        : m_pService(pService)
+    {
+
+    }
+
+    void OnTimeOut(unsigned int timerID)
+    {
+    	try
+    	{
+        	m_pService->cleanExpireMsg();
+        }
+        catch(...)
+        {
+        	RMQ_ERROR("CleanExpireMsgTask OnTimeOut exception");
+        }
+    }
+
+private:
+    ConsumeMessageConcurrentlyService* m_pService;
+};
+
+
+
+ConsumeMessageConcurrentlyService::ConsumeMessageConcurrentlyService(
+    DefaultMQPushConsumerImpl* pDefaultMQPushConsumerImpl,
+    MessageListenerConcurrently* pMessageListener)
+{
+    m_pDefaultMQPushConsumerImpl = pDefaultMQPushConsumerImpl;
+    m_pMessageListener = pMessageListener;
+    m_pDefaultMQPushConsumer = m_pDefaultMQPushConsumerImpl->getDefaultMQPushConsumer();
+    m_consumerGroup = m_pDefaultMQPushConsumer->getConsumerGroup();
+    m_pConsumeExecutor = new kpr::ThreadPool("ConsumeMessageThreadPool", 5,
+    	m_pDefaultMQPushConsumer->getConsumeThreadMin(), m_pDefaultMQPushConsumer->getConsumeThreadMax());
+    m_pScheduledExecutorService = new kpr::TimerThread("ConsumeMessageConcurrentlyService", 1000);
+    m_pCleanExpireMsgExecutors = new kpr::TimerThread("CleanExpireMsgService", 1000);
+	m_pCleanExpireMsgTask = new CleanExpireMsgTask(this);
+}
+
+ConsumeMessageConcurrentlyService::~ConsumeMessageConcurrentlyService()
+{
+	delete m_pCleanExpireMsgTask;
+}
+
+
+void ConsumeMessageConcurrentlyService::start()
+{
+	// 每分钟检查1次是否有消费超时消息
+	m_pCleanExpireMsgExecutors->RegisterTimer(
+		60 * 1000, 60 * 1000,
+		m_pCleanExpireMsgTask, true);
+
+    m_pScheduledExecutorService->Start();
+    m_pCleanExpireMsgExecutors->Start();
+}
+
+void ConsumeMessageConcurrentlyService::shutdown()
+{
+    m_pConsumeExecutor->Destroy();
+    m_pScheduledExecutorService->Stop();
+    m_pScheduledExecutorService->Join();
+
+    m_pCleanExpireMsgExecutors->Stop();
+    m_pCleanExpireMsgExecutors->Join();
+}
+
+
+void ConsumeMessageConcurrentlyService::cleanExpireMsg()
+{
+	std::map<MessageQueue, ProcessQueue*>& processQueueTable
+		= m_pDefaultMQPushConsumerImpl->getRebalanceImpl()->getProcessQueueTable();
+	RMQ_FOR_EACH(processQueueTable, it)
+	{
+		ProcessQueue* pq = it->second;
+        pq->cleanExpiredMsg(m_pDefaultMQPushConsumer);
+	}
+}
+
+
+ConsumerStat& ConsumeMessageConcurrentlyService::getConsumerStat()
+{
+    return m_pDefaultMQPushConsumerImpl->getConsumerStatManager()->getConsumertat();
+}
+
+bool ConsumeMessageConcurrentlyService::sendMessageBack(MessageExt& msg,
+        ConsumeConcurrentlyContext& context)
+{
+    // 如果用户没有设置，服务器会根据重试次数自动叠加延时时间
+    try
+    {
+        m_pDefaultMQPushConsumerImpl->sendMessageBack(msg,
+        	context.delayLevelWhenNextConsume, context.messageQueue.getBrokerName());
+        return true;
+    }
+    catch (...)
+    {
+		RMQ_ERROR("sendMessageBack exception, group: %s, msg: %s",
+			m_consumerGroup.c_str(), msg.toString().c_str());
+    }
+
+    return false;
+}
+
 void ConsumeMessageConcurrentlyService::submitConsumeRequestLater(std::list<MessageExt*>& msgs,
         ProcessQueue* pProcessQueue,
         const MessageQueue& messageQueue)
 {
     SubmitConsumeRequestLater* sc = new SubmitConsumeRequestLater(msgs, pProcessQueue, messageQueue, this);
-    m_scheduledExecutorService->RegisterTimer(0, 5000, sc, false);
+    m_pScheduledExecutorService->RegisterTimer(0, 5000, sc, false);
 }
 
 void ConsumeMessageConcurrentlyService::submitConsumeRequest(std::list<MessageExt*>& msgs,
@@ -283,7 +338,7 @@ void ConsumeMessageConcurrentlyService::processConsumeResult(ConsumeConcurrently
     }
 
     long long offset = consumeRequest.getProcessQueue()->removeMessage(consumeRequest.getMsgs());
-    if (offset >= 0)
+    if (offset >= 0 && !(consumeRequest.getProcessQueue()->isDropped()))
     {
         m_pDefaultMQPushConsumerImpl->getOffsetStore()->updateOffset(consumeRequest.getMessageQueue(),
                 offset, true);
@@ -353,6 +408,16 @@ void ConsumeConcurrentlyRequest::Do()
 	    try
 	    {
 	        resetRetryTopic(m_msgs);
+	        if (!m_msgs.empty())
+	        {
+	        	std::list<MessageExt*>::iterator it = m_msgs.begin();
+			    for (; it != m_msgs.end(); it++)
+			    {
+			        MessageExt* msg = (*it);
+			        msg->putProperty(Message::PROPERTY_CONSUME_START_TIMESTAMP,
+			        	UtilAll::toString(KPRUtil::GetCurrentTimeMillis()));
+			    }
+            }
 	        status = listener->consumeMessage(m_msgs, context);
 	    }
 	    catch (...)

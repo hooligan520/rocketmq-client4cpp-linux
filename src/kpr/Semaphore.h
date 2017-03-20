@@ -21,12 +21,14 @@
 
 namespace kpr
 {
+
 class Semaphore
 {
 public:
     Semaphore(long initial_count = 0);
     ~Semaphore();
 
+	int GetValue();
     bool Wait();
     bool Wait(long timeout);
 

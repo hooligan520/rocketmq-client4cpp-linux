@@ -59,6 +59,7 @@ namespace rmq
 		void setStoreTimestamp(long long storeTimestamp);
 
 		sockaddr getStoreHost();
+		std::string getStoreHostString();
 		void setStoreHost(const sockaddr& storeHost);
 
 		std::string getMsgId();

@@ -25,6 +25,7 @@
 namespace rmq
 {
     class MessageExt;
+	class DefaultMQPushConsumer;
 
     /**
     * 正在被消费的队列，含消息
@@ -32,11 +33,26 @@ namespace rmq
     */
     class ProcessQueue
     {
+    public:
+		// 客户端本地Lock存活最大时间，超过则自动过期，单位ms
+		static const unsigned int s_RebalanceLockMaxLiveTime = 30000;
 
+		// 定时Lock间隔时间，单位ms
+		static const unsigned int s_RebalanceLockInterval = 20000;
+
+		// 最大拉取idle时间，单位ms
+		static const unsigned int s_PullMaxIdleTime = 120000;
+		
     public:
         ProcessQueue();
 
         bool isLockExpired();
+		bool isPullExpired();
+
+		/**
+		 * 清除消费过期消息，使之重新消费
+		 */
+		void cleanExpiredMsg(DefaultMQPushConsumer* pPushConsumer);
 
         /**
         * @return 是否需要分发当前队列到消费线程池
@@ -65,7 +81,6 @@ namespace rmq
         kpr::AtomicInteger getMsgCount();
         bool isDropped();
         void setDropped(bool dropped);
-		bool isPullExpired();
 
 		unsigned long long getLastPullTimestamp();
 		void setLastPullTimestamp(unsigned long long lastPullTimestamp);
@@ -98,10 +113,6 @@ namespace rmq
         long long getLastLockTimestamp();
         void setLastLockTimestamp(long long lastLockTimestamp);
 
-    public:
-        static unsigned int s_RebalanceLockMaxLiveTime;// 客户端本地Lock存活最大时间，超过则自动过期，单位ms
-        static unsigned int s_RebalanceLockInterval;// 定时Lock间隔时间，单位ms
-        static unsigned int s_PullMaxIdleTime;		// 拉取最大idle时间，单位ms
 
     private:
         kpr::RWMutex m_lockTreeMap;

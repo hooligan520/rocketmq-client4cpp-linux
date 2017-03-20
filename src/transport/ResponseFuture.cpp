@@ -19,12 +19,14 @@
 #include "KPRUtil.h"
 #include "InvokeCallback.h"
 #include "Monitor.h"
+#include "Semaphore.h"
 #include "ScopedLock.h"
 
 namespace rmq
 {
 
-ResponseFuture::ResponseFuture(int requestCode, int opaque, int timeoutMillis, InvokeCallback* pInvokeCallback, bool block)
+ResponseFuture::ResponseFuture(int requestCode, int opaque, int timeoutMillis,
+	InvokeCallback* pInvokeCallback, bool block, kpr::Semaphore* pSem)
 {
     m_requestCode = requestCode;
     m_opaque = opaque;
@@ -36,6 +38,9 @@ ResponseFuture::ResponseFuture(int requestCode, int opaque, int timeoutMillis, I
     m_pMonitor = NULL;
     m_sendRequestOK = false;
     m_exec = 0;
+
+	m_pSemaphore = pSem;
+    m_released = 0;
 
     if (block)
     {
@@ -73,17 +78,24 @@ void  ResponseFuture::executeInvokeCallback()
     }
 }
 
-void  ResponseFuture::release()
+void ResponseFuture::release()
 {
+    if (m_pSemaphore != NULL)
+	{
+        if (m_released.compareAndSet(0, 1))
+		{
+            m_pSemaphore->Release();
+        }
+    }
 }
 
-bool  ResponseFuture::isTimeout()
+bool ResponseFuture::isTimeout()
 {
     long long diff = KPRUtil::GetCurrentTimeMillis() - m_beginTimestamp;
     return diff > m_timeoutMillis;
 }
 
-RemotingCommand*  ResponseFuture::waitResponse(int timeoutMillis)
+RemotingCommand* ResponseFuture::waitResponse(int timeoutMillis)
 {
     if (m_pMonitor)
     {

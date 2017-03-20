@@ -130,6 +130,21 @@ namespace rmq
 
 		DefaultMQPushConsumerImpl* getDefaultMQPushConsumerImpl();
 
+		bool isPostSubscriptionWhenPull();
+		void setPostSubscriptionWhenPull(bool postSubscriptionWhenPull);
+
+		bool isUnitMode();
+		void setUnitMode(bool isUnitMode);
+
+		int getMaxReconsumeTimes();
+		void setMaxReconsumeTimes(int maxReconsumeTimes);
+
+		int getSuspendCurrentQueueTimeMillis();
+		void setSuspendCurrentQueueTimeMillis(int suspendCurrentQueueTimeMillis);
+
+		int getConsumeTimeout();
+		void setConsumeTimeout(int consumeTimeout);
+
 	protected:
 		DefaultMQPushConsumerImpl* m_pDefaultMQPushConsumerImpl;
 
@@ -211,6 +226,32 @@ namespace rmq
 		* 拉消息，一次拉多少条
 		*/
 		int m_pullBatchSize;
+
+		/**
+	     * Whether update subscription relationship when every pull
+	     */
+	    bool m_postSubscriptionWhenPull;
+
+	    /**
+	     * Whether the unit of subscription group
+	     */
+	    bool m_unitMode;
+
+		/**
+		 * 重复最大重试次数，默认15次
+		 */
+	    int m_maxReconsumeTimes;
+
+		/**
+		 * 队列挂起时间(ms)，默认1000ms
+		 */
+	    long m_suspendCurrentQueueTimeMillis;
+
+		/**
+		 * 消费超时时间(分钟)
+		 * 默认15分钟
+		 */
+	    long m_consumeTimeout;
 	};
 }
 

@@ -115,6 +115,12 @@ namespace rmq
 
 		DefaultMQPullConsumerImpl* getDefaultMQPullConsumerImpl();
 
+		bool isUnitMode();
+		void setUnitMode(bool isUnitMode);
+
+		int getMaxReconsumeTimes();
+		void setMaxReconsumeTimes(int maxReconsumeTimes);
+
 	protected:
 		DefaultMQPullConsumerImpl* m_pDefaultMQPullConsumerImpl;
 
@@ -163,6 +169,16 @@ namespace rmq
 		* 队列分配算法，应用可重写
 		*/
 		AllocateMessageQueueStrategy* m_pAllocateMessageQueueStrategy;
+
+		/**
+	     * Whether the unit of subscription group
+	     */
+	    bool m_unitMode;
+
+		/**
+		 * 重复最大重试次数，默认15次
+		 */
+	    int m_maxReconsumeTimes;
 	};
 }
 

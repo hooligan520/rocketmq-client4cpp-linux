@@ -2,43 +2,9 @@
 #include "DefaultMQPushConsumer.h"
 using namespace rmq;
 
-
-#define MYDEBUG(fmt, args...) 	printf(fmt, ##args)
-#define MYLOG(fmt, args...) 	writelog(fmt, ##args)
-
-std::string g_log_path = "";
 volatile long long g_lastCnt = 0;
 volatile long long g_totalCnt = 0;
 long long g_lastUpdateTime = 0;
-
-static void writelog(const char* fmt, ...)
-{
-	if (g_log_path.empty())
-	{
-		return;
-	}
-
-    static int logFd = -1;
-	if (logFd < 0)
-	{
-		logFd = open(g_log_path.c_str(), O_CREAT | O_RDWR | O_APPEND, 0666);
-	}
-
-    if (logFd > 0)
-    {
-    	char buf[1024*128];
-	    buf[0] = buf[sizeof(buf) - 1] = '\0';
-
-	    va_list ap;
-	    va_start(ap, fmt);
-	    int size = vsnprintf(buf, sizeof(buf), fmt, ap);
-	    va_end(ap);
-
-        write(logFd, buf, size);
-    }
-
-    return;
-}
 
 static std::string bin2str(const std::string& strBin)
 {
@@ -105,7 +71,6 @@ public:
 		long long offset = msg->getQueueOffset();
 		std::string maxOffset = msg->getProperty(Message::PROPERTY_MAX_OFFSET);
 
-
 		long long diff = MyUtil::str2ll(maxOffset.c_str()) - offset;
 		if (diff > 100000)
 		{
@@ -123,11 +88,6 @@ public:
 			str.assign(me->getBody(),me->getBodyLen());
 
 			MYLOG("[%d]|%s|%s\n",  cnt, me->toString().c_str(), str.c_str());
-
-			if (str.substr(0, 4) != "this")
-			{
-				MYLOG("[%d]|invalid msg|%s|%s\n",  cnt, me->toString().c_str(), bin2str(str).c_str());
-			}
 		}
 
 		consumeTimes++;
@@ -211,7 +171,7 @@ int main(int argc, char* argv[])
 		{
 			if (i+1 < argc)
 			{
-				g_log_path = argv[i+1];
+				MyUtil::initLog(argv[i+1]);
 				i++;
 			}
 			else
@@ -260,11 +220,15 @@ int main(int argc, char* argv[])
 	consumer.setConsumeFromWhere(CONSUME_FROM_LAST_OFFSET);
 
 	// 设置每次消费消息的数量，默认设置是1条
-	// m_pConsumer->setConsumeMessageBatchMaxSize(1);
+	// consumer.setConsumeMessageBatchMaxSize(1);
 
 	// 消费线程池数量，默认最小5，最大25，建议设置为一样，比较稳定
-	// m_pConsumer->setConsumeThreadMin(25);
-	// m_pConsumer->setConsumeThreadMax(25);
+	// consumer.setConsumeThreadMin(25);
+	// consumer.setConsumeThreadMax(25);
+
+	// 单消息消费超时时长，默认为15分钟
+	// 消费超时，则对应的消息将会被被放回重试队列，重新进行投递
+	// consumer.setConsumeTimeout(15);
 
 	// 注册消费者的消息监听函数
 	RMQ_DEBUG("consumer.registerMessageListener");

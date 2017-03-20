@@ -45,6 +45,11 @@ DefaultMQPushConsumer::DefaultMQPushConsumer()
     m_pullInterval = 0;
     m_consumeMessageBatchMaxSize = 1;
     m_pullBatchSize = 32;
+    m_postSubscriptionWhenPull = false;
+    m_unitMode = false;
+    m_maxReconsumeTimes = 16;
+    m_suspendCurrentQueueTimeMillis = 1000;
+    m_consumeTimeout = 15;
     m_pOffsetStore = NULL;
     m_pDefaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this);
 }
@@ -63,6 +68,11 @@ DefaultMQPushConsumer::DefaultMQPushConsumer(const std::string& consumerGroup)
     m_pullInterval = 0;
     m_consumeMessageBatchMaxSize = 1;
     m_pullBatchSize = 32;
+    m_postSubscriptionWhenPull = false;
+    m_unitMode = false;
+    m_maxReconsumeTimes = 16;
+    m_suspendCurrentQueueTimeMillis = 1000;
+    m_consumeTimeout = 15;
     m_pOffsetStore = NULL;
     m_pDefaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this);
 }
@@ -327,6 +337,63 @@ std::string DefaultMQPushConsumer::getConsumeTimestamp() {
 
 void DefaultMQPushConsumer::setConsumeTimestamp(std::string consumeTimestamp) {
     m_consumeTimestamp = consumeTimestamp;
+}
+
+bool DefaultMQPushConsumer::isPostSubscriptionWhenPull()
+{
+    return m_postSubscriptionWhenPull;
+}
+
+
+void DefaultMQPushConsumer::setPostSubscriptionWhenPull(bool postSubscriptionWhenPull)
+{
+    m_postSubscriptionWhenPull = postSubscriptionWhenPull;
+}
+
+
+bool DefaultMQPushConsumer::isUnitMode()
+{
+    return m_unitMode;
+}
+
+
+void DefaultMQPushConsumer::setUnitMode(bool isUnitMode)
+{
+    m_unitMode = isUnitMode;
+}
+
+int DefaultMQPushConsumer::getMaxReconsumeTimes()
+{
+    return m_maxReconsumeTimes;
+}
+
+
+void DefaultMQPushConsumer::setMaxReconsumeTimes(int maxReconsumeTimes)
+{
+    m_maxReconsumeTimes = maxReconsumeTimes;
+}
+
+
+int DefaultMQPushConsumer::getSuspendCurrentQueueTimeMillis()
+{
+    return m_suspendCurrentQueueTimeMillis;
+}
+
+
+void DefaultMQPushConsumer::setSuspendCurrentQueueTimeMillis(int suspendCurrentQueueTimeMillis)
+{
+    m_suspendCurrentQueueTimeMillis = suspendCurrentQueueTimeMillis;
+}
+
+
+int DefaultMQPushConsumer::getConsumeTimeout()
+{
+    return m_consumeTimeout;
+}
+
+void DefaultMQPushConsumer::setConsumeTimeout(int consumeTimeout)
+{
+    m_consumeTimeout = consumeTimeout;
 }
 
 

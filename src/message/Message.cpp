@@ -43,6 +43,11 @@ const std::string Message::PROPERTY_TRANSFER_FLAG = "TRANSFER_FLAG";
 const std::string Message::PROPERTY_CORRECTION_FLAG = "CORRECTION_FLAG";
 const std::string Message::PROPERTY_MQ2_FLAG = "MQ2_FLAG";
 const std::string Message::PROPERTY_RECONSUME_TIME = "RECONSUME_TIME";
+const std::string Message::PROPERTY_MSG_REGION = "MSG_REGION";
+const std::string Message::PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX = "UNIQ_KEY";
+const std::string Message::PROPERTY_MAX_RECONSUME_TIMES = "MAX_RECONSUME_TIMES";
+const std::string Message::PROPERTY_CONSUME_START_TIMESTAMP = "CONSUME_START_TIME";
+
 
 const std::string Message::KEY_SEPARATOR = " ";
 

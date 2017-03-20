@@ -17,63 +17,133 @@
 #include "ProcessQueue.h"
 #include "MessageExt.h"
 #include "KPRUtil.h"
+#include "UtilAll.h"
 #include "ScopedLock.h"
+#include "DefaultMQPushConsumer.h"
+#include "DefaultMQPushConsumerImpl.h"
 
 namespace rmq
 {
 
-// 客户端本地Lock存活最大时间，超过则自动过期，单位ms
-//"rocketmq.client.rebalance.lockMaxLiveTime", "30000"
-unsigned int ProcessQueue::s_RebalanceLockMaxLiveTime = 30000;
-
-// 定时Lock间隔时间，单位ms
-//"rocketmq.client.rebalance.lockInterval", "20000"
-unsigned int ProcessQueue::s_RebalanceLockInterval = 20000;
-
-// 最大拉取idle时间，单位ms
-// rocketmq.client.pull.pullMaxIdleTime, 120000
-unsigned int ProcessQueue::s_PullMaxIdleTime = 120000;
-
-
 ProcessQueue::ProcessQueue()
 {
-	m_lastPullTimestamp = KPRUtil::GetCurrentTimeMillis();
-	m_lastConsumeTimestamp = KPRUtil::GetCurrentTimeMillis();
+    m_lastPullTimestamp = KPRUtil::GetCurrentTimeMillis();
+    m_lastConsumeTimestamp = KPRUtil::GetCurrentTimeMillis();
     m_queueOffsetMax = 0L;
     m_msgCount = 0;
     m_dropped = false;
-
     m_locked = false;
     m_lastLockTimestamp = KPRUtil::GetCurrentTimeMillis();
     m_consuming = false;
-
 }
 
 bool ProcessQueue::isLockExpired()
 {
-    bool result = (KPRUtil::GetCurrentTimeMillis() - m_lastLockTimestamp) > s_RebalanceLockMaxLiveTime;
+    bool result = (KPRUtil::GetCurrentTimeMillis() - m_lastLockTimestamp) >
+                  s_RebalanceLockMaxLiveTime;
     return result;
 }
 
-bool ProcessQueue::putMessage(const std::list<MessageExt*>& msgs)
+bool ProcessQueue::isPullExpired()
+{
+    bool result = (KPRUtil::GetCurrentTimeMillis() - m_lastPullTimestamp) >
+                  s_PullMaxIdleTime;
+    return result;
+}
+
+
+void ProcessQueue::cleanExpiredMsg(DefaultMQPushConsumer* pPushConsumer)
+{
+	long long now = KPRUtil::GetCurrentTimeMillis();
+    int loop = m_msgTreeMap.size() < 16 ? m_msgTreeMap.size() : 16;
+    for (int i = 0; i < loop; i++)
+    {
+        MessageExt* msg = NULL;
+        try
+        {
+            kpr::ScopedRLock<kpr::RWMutex> lock(m_lockTreeMap);
+            if (m_msgTreeMap.empty())
+            {
+            	return;
+            }
+
+            MessageExt* firstMsg = m_msgTreeMap.begin()->second;
+            long long startTimestamp = UtilAll::str2ll(firstMsg->getProperty(Message::PROPERTY_CONSUME_START_TIMESTAMP).c_str());
+            if ((now - startTimestamp) > (pPushConsumer->getConsumeTimeout() * 60 * 1000))
+            {
+                msg = firstMsg;
+            }
+            else
+            {
+                return;
+            }
+        }
+        catch (...)
+        {
+            RMQ_ERROR("getExpiredMsg exception");
+        }
+
+        try
+        {
+            pPushConsumer->sendMessageBack((*msg), 3);
+            RMQ_WARN("send expire msg back. topic={%s}, msgId={%s}, storeHost={%s}, queueId={%d}, queueOffset={%lld}",
+                     msg->getTopic().c_str(), msg->getMsgId().c_str(), msg->getStoreHostString().c_str(),
+                     msg->getQueueId(), msg->getQueueOffset());
+
+            try
+            {
+                kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
+                if (!m_msgTreeMap.empty() && msg->getQueueOffset() == m_msgTreeMap.begin()->first)
+                {
+                    try
+                    {
+                        m_msgTreeMap.erase(msg->getQueueOffset());
+                        delete msg;
+                        m_msgCount -= 1;
+                    }
+                    catch (...)
+                    {
+                        RMQ_ERROR("send expired msg exception");
+                    }
+                }
+
+            }
+            catch (...)
+            {
+                RMQ_ERROR("delExpiredMsg exception");
+            }
+        }
+        catch (...)
+        {
+            RMQ_ERROR("send expired msg exception");
+        }
+    }
+}
+
+
+bool ProcessQueue::putMessage(const std::list<MessageExt *> &msgs)
 {
     bool dispathToConsume = false;
+
     try
     {
         kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
-
         int validMsgCnt = 0;
-        std::list<MessageExt*>::const_iterator it = msgs.begin();
+        std::list<MessageExt *>::const_iterator it = msgs.begin();
+
         for (; it != msgs.end(); it++)
         {
-            MessageExt* msg = (*it);
+            MessageExt *msg = (*it);
+
             if (m_msgTreeMap.find(msg->getQueueOffset()) == m_msgTreeMap.end())
             {
-            	validMsgCnt++;
+                validMsgCnt++;
                 m_queueOffsetMax = msg->getQueueOffset();
             }
+
             m_msgTreeMap[msg->getQueueOffset()] = msg;
         }
+
         m_msgCount += validMsgCnt;
 
         if (!m_msgTreeMap.empty() && !m_consuming)
@@ -84,7 +154,7 @@ bool ProcessQueue::putMessage(const std::list<MessageExt*>& msgs)
     }
     catch (...)
     {
-    	RMQ_ERROR("putMessage exception");
+        RMQ_ERROR("putMessage exception");
     }
 
     return dispathToConsume;
@@ -98,62 +168,66 @@ long long ProcessQueue::getMaxSpan()
     try
     {
         kpr::ScopedRLock<kpr::RWMutex> lock(m_lockTreeMap);
+
         if (!m_msgTreeMap.empty())
         {
-            std::map<long long, MessageExt*>::iterator it1 = m_msgTreeMap.begin();
-            std::map<long long, MessageExt*>::iterator it2 = m_msgTreeMap.end();
+            std::map<long long, MessageExt *>::iterator it1 = m_msgTreeMap.begin();
+            std::map<long long, MessageExt *>::iterator it2 = m_msgTreeMap.end();
             it2--;
             return it2->first - it1->first;
         }
     }
     catch (...)
     {
-    	RMQ_ERROR("getMaxSpan exception");
+        RMQ_ERROR("getMaxSpan exception");
     }
 
     return 0;
 }
 
-long long ProcessQueue::removeMessage(std::list<MessageExt*>& msgs)
+long long ProcessQueue::removeMessage(std::list<MessageExt *> &msgs)
 {
     long long result = -1;
     unsigned long long now = KPRUtil::GetCurrentTimeMillis();
+
     try
     {
         kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
-		m_lastConsumeTimestamp = now;
+        m_lastConsumeTimestamp = now;
 
         if (!m_msgTreeMap.empty())
         {
             result = m_queueOffsetMax + 1;
+            int removedCnt = 0;
+            std::list<MessageExt *>::iterator it = msgs.begin();
 
-			int removedCnt = 0;
-            std::list<MessageExt*>::iterator it = msgs.begin();
-            for (; it != msgs.end(); )
+            for (; it != msgs.end();)
             {
-                MessageExt* msg = (*it);
-                if (m_msgTreeMap.find(msg->getQueueOffset()) != m_msgTreeMap.end())
-	            {
-	            	removedCnt++;
-	            }
-                m_msgTreeMap.erase(msg->getQueueOffset());
+                MessageExt *msg = (*it);
 
+                if (m_msgTreeMap.find(msg->getQueueOffset()) != m_msgTreeMap.end())
+                {
+                    removedCnt++;
+                }
+
+                m_msgTreeMap.erase(msg->getQueueOffset());
                 //TODO delete message?
                 it = msgs.erase(it);
                 delete msg;
             }
-			m_msgCount -= removedCnt;
 
-			if (!m_msgTreeMap.empty())
-	        {
-	            std::map<long long, MessageExt*>::iterator it = m_msgTreeMap.begin();
-	            result = it->first;
-	        }
+            m_msgCount -= removedCnt;
+
+            if (!m_msgTreeMap.empty())
+            {
+                std::map<long long, MessageExt *>::iterator it = m_msgTreeMap.begin();
+                result = it->first;
+            }
         }
     }
     catch (...)
     {
-    	RMQ_ERROR("removeMessage exception");
+        RMQ_ERROR("removeMessage exception");
     }
 
     return result;
@@ -165,21 +239,21 @@ void ProcessQueue::clear()
     try
     {
         kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
-		m_msgTreeMap.clear();
-		m_msgTreeMapTemp.clear();
-		m_msgCount.set(0);
-		m_queueOffsetMax = 0;
+        m_msgTreeMap.clear();
+        m_msgTreeMapTemp.clear();
+        m_msgCount.set(0);
+        m_queueOffsetMax = 0;
     }
     catch (...)
     {
-    	RMQ_ERROR("clear exception");
+        RMQ_ERROR("clear exception");
     }
 
     return;
 }
 
 
-std::map<long long, MessageExt*> ProcessQueue::getMsgTreeMap()
+std::map<long long, MessageExt *> ProcessQueue::getMsgTreeMap()
 {
     return m_msgTreeMap;
 }
@@ -197,12 +271,6 @@ bool ProcessQueue::isDropped()
 void ProcessQueue::setDropped(bool dropped)
 {
     m_dropped = dropped;
-}
-
-bool ProcessQueue::isPullExpired()
-{
-    bool result = (KPRUtil::GetCurrentTimeMillis() - m_lastPullTimestamp) > s_PullMaxIdleTime;
-    return result;
 }
 
 unsigned long long ProcessQueue::getLastPullTimestamp()
@@ -223,20 +291,20 @@ unsigned long long ProcessQueue::getLastConsumeTimestamp()
 }
 
 
-void ProcessQueue::setLastConsumeTimestamp(unsigned long long lastConsumeTimestamp)
+void ProcessQueue::setLastConsumeTimestamp(unsigned long long
+        lastConsumeTimestamp)
 {
     m_lastConsumeTimestamp = lastConsumeTimestamp;
 }
-
 
 
 /**
 * ========================================================================
 * 以下部分为顺序消息专有操作
 */
-kpr::Mutex& ProcessQueue::getLockConsume()
+kpr::Mutex &ProcessQueue::getLockConsume()
 {
-	return m_lockConsume;
+    return m_lockConsume;
 }
 
 void ProcessQueue::setLocked(bool locked)
@@ -251,12 +319,12 @@ bool ProcessQueue::isLocked()
 
 long long ProcessQueue::getTryUnlockTimes()
 {
-   return m_tryUnlockTimes.get();
+    return m_tryUnlockTimes.get();
 }
 
 void ProcessQueue::incTryUnlockTimes()
 {
-   m_tryUnlockTimes++;
+    m_tryUnlockTimes++;
 }
 
 
@@ -270,7 +338,7 @@ void ProcessQueue::rollback()
     }
     catch (...)
     {
-    	RMQ_ERROR("rollback exception");
+        RMQ_ERROR("rollback exception");
     }
 }
 
@@ -279,9 +347,10 @@ long long ProcessQueue::commit()
     try
     {
         kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
+
         if (!m_msgTreeMapTemp.empty())
         {
-            std::map<long long, MessageExt*>::iterator it = m_msgTreeMapTemp.end();
+            std::map<long long, MessageExt *>::iterator it = m_msgTreeMapTemp.end();
             it--;
             long long offset = it->first;
             m_msgCount -= m_msgTreeMapTemp.size();
@@ -291,30 +360,31 @@ long long ProcessQueue::commit()
     }
     catch (...)
     {
-    	RMQ_ERROR("commit exception");
+        RMQ_ERROR("commit exception");
     }
 
     return -1;
 }
 
-void ProcessQueue::makeMessageToCosumeAgain(const std::list<MessageExt*>& msgs)
+void ProcessQueue::makeMessageToCosumeAgain(const std::list<MessageExt *> &msgs)
 {
     try
     {
         // 临时Table删除
         // 正常Table增加
         kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
-        std::list<MessageExt*>::const_iterator it = msgs.begin();
+        std::list<MessageExt *>::const_iterator it = msgs.begin();
+
         for (; it != msgs.end(); it++)
         {
-            MessageExt* msg = (*it);
+            MessageExt *msg = (*it);
             m_msgTreeMapTemp.erase(msg->getQueueOffset());
             m_msgTreeMap[msg->getQueueOffset()] = msg;
         }
     }
     catch (...)
     {
-    	RMQ_ERROR("makeMessageToCosumeAgain exception");
+        RMQ_ERROR("makeMessageToCosumeAgain exception");
     }
 }
 
@@ -324,19 +394,22 @@ void ProcessQueue::makeMessageToCosumeAgain(const std::list<MessageExt*>& msgs)
 * @param batchSize
 * @return
 */
-std::list<MessageExt*> ProcessQueue::takeMessages(int batchSize)
+std::list<MessageExt *> ProcessQueue::takeMessages(int batchSize)
 {
-    std::list<MessageExt*> result;
+    std::list<MessageExt *> result;
     unsigned long long now = KPRUtil::GetCurrentTimeMillis();
+
     try
     {
         kpr::ScopedWLock<kpr::RWMutex> lock(m_lockTreeMap);
         m_lastConsumeTimestamp = now;
+
         if (!m_msgTreeMap.empty())
         {
             for (int i = 0; i < batchSize; i++)
             {
-                std::map<long long, MessageExt*>::iterator it = m_msgTreeMap.begin();
+                std::map<long long, MessageExt *>::iterator it = m_msgTreeMap.begin();
+
                 if (it != m_msgTreeMap.end())
                 {
                     result.push_back(it->second);
@@ -350,14 +423,14 @@ std::list<MessageExt*> ProcessQueue::takeMessages(int batchSize)
             }
 
             if (result.empty())
-		    {
-		        m_consuming = false;
-		    }
+            {
+                m_consuming = false;
+            }
         }
     }
     catch (...)
     {
-    	RMQ_ERROR("takeMessags exception");
+        RMQ_ERROR("takeMessags exception");
     }
 
     return result;
@@ -375,3 +448,4 @@ void ProcessQueue::setLastLockTimestamp(long long lastLockTimestamp)
 
 
 }
+

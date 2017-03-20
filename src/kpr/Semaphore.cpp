@@ -32,6 +32,17 @@ Semaphore::~Semaphore()
     sem_destroy(&m_sem);
 }
 
+int Semaphore::GetValue()
+{
+	int value = 0;
+	int rc = sem_getvalue(&m_sem, &value);
+	if (rc < 0)
+	{
+		return rc;
+	}
+	return value;
+}
+
 bool Semaphore::Wait()
 {
     int rc;

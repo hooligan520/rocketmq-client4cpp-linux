@@ -120,6 +120,11 @@ sockaddr MessageExt::getStoreHost()
     return m_storeHost;
 }
 
+std::string MessageExt::getStoreHostString()
+{
+    return socketAddress2String(m_storeHost);
+}
+
 void MessageExt::setStoreHost(const sockaddr& storeHost)
 {
     m_storeHost = storeHost;

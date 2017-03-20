@@ -37,7 +37,9 @@ DefaultMQPullConsumer::DefaultMQPullConsumer()
       m_messageModel(CLUSTERING),
       m_pMessageQueueListener(NULL),
       m_pOffsetStore(NULL),
-      m_pAllocateMessageQueueStrategy(new AllocateMessageQueueAveragely())
+      m_pAllocateMessageQueueStrategy(new AllocateMessageQueueAveragely()),
+      m_unitMode(false),
+      m_maxReconsumeTimes(16)
 {
     m_pDefaultMQPullConsumerImpl = new DefaultMQPullConsumerImpl(this);
 }
@@ -50,7 +52,9 @@ DefaultMQPullConsumer::DefaultMQPullConsumer(const std::string& consumerGroup)
       m_messageModel(CLUSTERING),
       m_pMessageQueueListener(NULL),
       m_pOffsetStore(NULL),
-      m_pAllocateMessageQueueStrategy(new AllocateMessageQueueAveragely())
+      m_pAllocateMessageQueueStrategy(new AllocateMessageQueueAveragely()),
+      m_unitMode(false),
+      m_maxReconsumeTimes(16)
 {
     m_pDefaultMQPullConsumerImpl = new DefaultMQPullConsumerImpl(this);
 }
@@ -279,6 +283,27 @@ DefaultMQPullConsumerImpl* DefaultMQPullConsumer::getDefaultMQPullConsumerImpl()
 {
     return m_pDefaultMQPullConsumerImpl;
 }
+
+bool DefaultMQPullConsumer::isUnitMode()
+{
+    return m_unitMode;
+}
+
+void DefaultMQPullConsumer::setUnitMode(bool isUnitMode)
+{
+    m_unitMode = isUnitMode;
+}
+
+int DefaultMQPullConsumer::getMaxReconsumeTimes()
+{
+    return m_maxReconsumeTimes;
+}
+
+void DefaultMQPullConsumer::setMaxReconsumeTimes(int maxReconsumeTimes)
+{
+    m_maxReconsumeTimes = maxReconsumeTimes;
+}
+
 
 }
 

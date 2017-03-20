@@ -3,19 +3,21 @@
 #include "DefaultMQProducer.h"
 using namespace rmq;
 
-
-int print_screen = 0;
+long long g_lastUpdateTime = 0;
+volatile long long g_cnt_total = 0;
+volatile long long g_cnt_last = 0;
 volatile long long g_cnt_succ = 0;
 volatile long long g_cnt_fail = 0;
 
 
 void Usage(const char* program)
 {
-    printf("Usage:%s ip:port [-g group] [-t topic] [-n count] [-s size]\n", program);
+    printf("Usage:%s ip:port [-g group] [-t topic] [-n count] [-s size] [-w logpath]\n", program);
     printf("\t -g group\n");
     printf("\t -t topic\n");
     printf("\t -n message count\n");
     printf("\t -s message size \n");
+    printf("\t -w log path\n");
 }
 
 
@@ -27,29 +29,41 @@ public:
 
     virtual ~SampleSendCallback()
     {
-        std::cout << "~Ctor invoked" << std::endl;
+    }
+
+    int count()
+    {
+
+        long long now = MyUtil::getNowMs();
+        long long old = g_lastUpdateTime;
+        long long total = g_cnt_succ + g_cnt_fail;
+        if ((now - old) >= 1000)
+        {
+            if (__sync_bool_compare_and_swap(&g_lastUpdateTime, old, now))
+            {
+                long long time = now - old;
+                int tps = (int)((total - g_cnt_last) * 1.0 / time * 1000.0);
+                g_cnt_last = total;
+
+                MYDEBUG("[producer]succ: %lld, fail: %lld, TPS: %d\n",
+                    g_cnt_succ, g_cnt_fail, tps);
+            }
+        }
     }
 
     void onSuccess(SendResult& sendResult)
     {
+        int cnt = __sync_fetch_and_add(&g_cnt_total, 1);
         __sync_fetch_and_add(&g_cnt_succ, 1);
-
-        if (print_screen)
-        {
-            printf("result:{sendStatus=%d,msgId=%s,messageQueue=[topic=%s,brokerName=%s,queueId=%d],queueOffset=%d}\n",
-                sendResult.getSendStatus(), sendResult.getMsgId().c_str(),
-                sendResult.getMessageQueue().getTopic().c_str(),
-                sendResult.getMessageQueue().getBrokerName().c_str(),
-                sendResult.getMessageQueue().getQueueId(),
-                sendResult.getQueueOffset());
-        }
+        MYLOG("[%d]|succ|%s\n",  cnt, sendResult.toString().c_str());
     }
 
     void onException(MQException& e)
     {
+        int cnt = __sync_fetch_and_add(&g_cnt_total, 1);
         __sync_fetch_and_add(&g_cnt_fail, 1);
 
-        printf("Message delivery failed, cause: %s\n", e.what());
+        MYLOG("[%d]|fail|%s\n",  cnt, e.what());
     }
 };
 
@@ -120,6 +134,19 @@ int main(int argc, char *argv[]) {
                 return 0;
             }
         }
+        else if (strcmp(argv[i],"-w")==0)
+        {
+            if (i+1 < argc)
+            {
+                MyUtil::initLog(argv[i+1]);
+                i++;
+            }
+            else
+            {
+                Usage(argv[0]);
+                return 0;
+            }
+        }
         else
         {
             Usage(argv[0]);
@@ -163,7 +190,6 @@ int main(int argc, char *argv[]) {
     TimeCount tcTotal;
     tcTotal.begin();
 
-    SampleSendCallback* ptrSendCallback = new SampleSendCallback();
     for (int i = 0; i < count; i++)
     {
         try
@@ -178,7 +204,8 @@ int main(int argc, char *argv[]) {
             );
 
             // 异步生产消息
-            producer.send(msg, ptrSendCallback);
+            SampleSendCallback* pSendCallback = new SampleSendCallback();
+            producer.send(msg, pSendCallback);
         }
         catch (MQClientException& e)
         {
@@ -200,7 +227,7 @@ int main(int argc, char *argv[]) {
 
     printf("statsics: succ=%d, fail=%d, total_cost=%ds, tps=%d, avg=%dms\n",
         g_cnt_succ, g_cnt_fail, tcTotal.countSec(),
-        (int)((double)count/(tcTotal.countMsec()/1000)), tcTotal.countMsec()/count);
+        (int)((double)count/((double)tcTotal.countUsec()/1000/1000)), tcTotal.countMsec()/count);
 
     // 停止生产者
     producer.shutdown();

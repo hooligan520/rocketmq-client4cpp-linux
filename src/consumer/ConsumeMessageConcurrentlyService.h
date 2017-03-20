@@ -84,7 +84,10 @@ namespace rmq
 
       void start();
       void shutdown();
+
+	  void cleanExpireMsg();
       ConsumerStat& getConsumerStat();
+
       bool sendMessageBack(MessageExt& msg, ConsumeConcurrentlyContext& context);
       void processConsumeResult(ConsumeConcurrentlyStatus status,
                                 ConsumeConcurrentlyContext& context,
@@ -113,7 +116,9 @@ namespace rmq
       MessageListenerConcurrently* m_pMessageListener;
       std::string m_consumerGroup;
       kpr::ThreadPoolPtr m_pConsumeExecutor;
-      kpr::TimerThreadPtr m_scheduledExecutorService;
+      kpr::TimerThreadPtr m_pScheduledExecutorService;
+	  kpr::TimerThreadPtr m_pCleanExpireMsgExecutors;
+	  kpr::TimerHandler* m_pCleanExpireMsgTask;
   };
 }
 

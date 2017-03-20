@@ -1,19 +1,34 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
-#include <string>
-#include <iostream>
-#include <unistd.h>
-#include <signal.h>
+#include <assert.h>
 #include <time.h>
-#include <sys/types.h>
-#include <sys/time.h>
+#include <stdarg.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <signal.h>
+#include <pthread.h>
 
-#include <string>
+#include <sys/time.h>
+#include <sys/timeb.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <sys/syscall.h>
+#include <linux/unistd.h>
+
+#include <cstdio>
 #include <iostream>
+#include <string>
+#include <sstream>
+#include <vector>
 #include <map>
 #include <set>
 
+
+#define MYDEBUG(fmt, args...)   printf(fmt, ##args)
+#define MYLOG(fmt, args...)     MyUtil::writelog("[%s]"fmt, RocketMQUtil::now2str().c_str(), ##args)
 
 class MyUtil
 {
@@ -37,6 +52,42 @@ public:
         gettimeofday(&tv, 0);
         return tv.tv_sec * 1000ULL+tv.tv_usec/1000;
     }
+
+    static int initLog(const std::string& logPath)
+    {
+        _logPath = logPath;
+    }
+
+    static void writelog(const char* fmt, ...)
+    {
+        if (_logPath.empty())
+        {
+            return;
+        }
+
+        static int logFd = -1;
+        if (logFd < 0)
+        {
+            logFd = open(_logPath.c_str(), O_CREAT | O_RDWR | O_APPEND, 0666);
+        }
+
+        if (logFd > 0)
+        {
+            char buf[1024*128];
+            buf[0] = buf[sizeof(buf) - 1] = '\0';
+
+            va_list ap;
+            va_start(ap, fmt);
+            int size = vsnprintf(buf, sizeof(buf), fmt, ap);
+            va_end(ap);
+
+            write(logFd, buf, size);
+        }
+
+        return;
+    }
+public:
+    static std::string _logPath;
 };
 
 /*

@@ -32,6 +32,7 @@
 #include "TcpTransport.h"
 #include "ScopedLock.h"
 #include "KPRUtil.h"
+#include "Semaphore.h"
 #include "ResponseFuture.h"
 
 namespace rmq
@@ -81,6 +82,16 @@ namespace rmq
         friend class EventThread;
         friend class ProcessDataWork;
 
+	public:
+		// 连接锁超时
+		static const int s_LockTimeoutMillis = 3000;
+		// 定时器检查间隔
+		static const int s_CheckIntervalMillis = 1000;
+		// oneway信号量个数
+		static const int s_ClientOnewaySemaphoreValue = 2048;
+		// async信号量个数
+		static const int s_ClientAsyncSemaphoreValue = 2048;
+		
     public:
         TcpRemotingClient(const RemoteClientConfig& config);
         virtual ~TcpRemotingClient();
@@ -113,16 +124,18 @@ namespace rmq
 		TcpTransport* createTransport(const std::string& addr, int timeoutMillis);
 
         RemotingCommand* invokeSyncImpl(TcpTransport* pTts, RemotingCommand* pRequest, int timeoutMillis) ;
-        int invokeAsyncImpl(TcpTransport* pTts, RemotingCommand* pRequest, int timeoutMillis, InvokeCallback* pInvokeCallback);
+        void invokeAsyncImpl(TcpTransport* pTts, RemotingCommand* pRequest, int timeoutMillis, InvokeCallback* pInvokeCallback);
         int invokeOnewayImpl(TcpTransport* pTts, RemotingCommand* pRequest, int timeoutMillis);
 
     private:
-		static int s_LockTimeoutMillis;
-		static int s_CheckIntervalMillis;
-
         bool m_stop;
         kpr::Epoller m_epoller;
         RemoteClientConfig m_config;
+
+		// 信号量，Oneway情况会使用，防止本地缓存请求过多
+		kpr::Semaphore m_semaphoreOneway;
+		// 信号量，异步调用情况会使用，防止本地缓存请求过多
+		kpr::Semaphore m_semaphoreAsync;
 
         std::map<std::string , TcpTransport*> m_transportTable;
         kpr::RWMutex m_transportTableLock;

@@ -130,6 +130,10 @@ namespace rmq
 		static const std::string PROPERTY_MQ2_FLAG;
 		static const std::string PROPERTY_RECONSUME_TIME;
 		static const std::string KEY_SEPARATOR;
+		static const std::string PROPERTY_MSG_REGION;
+		static const std::string PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX;
+		static const std::string PROPERTY_MAX_RECONSUME_TIMES;
+		static const std::string PROPERTY_CONSUME_START_TIMESTAMP;
 
 	private:
 		std::string m_topic;///< 消息主题

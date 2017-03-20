@@ -2,15 +2,14 @@
 #include "DefaultMQProducer.h"
 using namespace rmq;
 
-int print_screen = 0;
-
 void Usage(const char* program)
 {
-	printf("Usage:%s ip:port [-g group] [-t topic] [-n count] [-s size]\n", program);
+	printf("Usage:%s ip:port [-g group] [-t topic] [-n count] [-s size] [-w logpath]\n", program);
 	printf("\t -g group\n");
 	printf("\t -t topic\n");
 	printf("\t -n message count\n");
 	printf("\t -s message size \n");
+	printf("\t -w log path\n");
 }
 
 int main(int argc, char* argv[])
@@ -81,6 +80,19 @@ int main(int argc, char* argv[])
 				return 0;
 			}
 		}
+		else if (strcmp(argv[i],"-w")==0)
+        {
+            if (i+1 < argc)
+            {
+                MyUtil::initLog(argv[i+1]);
+                i++;
+            }
+            else
+            {
+                Usage(argv[0]);
+                return 0;
+            }
+        }
 		else
 		{
 			Usage(argv[0]);
@@ -153,26 +165,17 @@ int main(int argc, char* argv[])
 			_min = (_min == 0) ? cost : (std::min(cost, _min));
 			_max = (_max == 0) ? cost : (std::max(cost, _max));
 
-			if (print_screen)
-			{
-				printf("cost:%dms, result:{sendStatus=%d,msgId=%s,messageQueue=[topic=%s,brokerName=%s,queueId=%d],queueOffset=%d}\n",
-					cost,
-					sendResult.getSendStatus(), sendResult.getMsgId().c_str(),
-					sendResult.getMessageQueue().getTopic().c_str(),
-					sendResult.getMessageQueue().getBrokerName().c_str(),
-					sendResult.getMessageQueue().getQueueId(),
-					sendResult.getQueueOffset());
-			}
+			MYLOG("[%d]|succ|cost:%dms, result:%s\n", i, cost, sendResult.toString().c_str());
 		}
 		catch (MQClientException& e)
 		{
-			std::cout << e << std::endl;
 			_failCnt++;
+			MYLOG("[%d]|fail|%s\n", i, e.what());
 		}
 	}
 	tcTotal.end();
 
-	printf("statsics: num=%d, fail=%d, total_cost=%ds, tps=%d, avg=%dms, min=%dms, max=%dms\n",
+	MYDEBUG("statsics: num=%d, fail=%d, total_cost=%ds, tps=%d, avg=%dms, min=%dms, max=%dms\n",
 		count, _failCnt, tcTotal.countSec(), (int)((double)count/(tcTotal.countMsec()/1000)),
 		tcTotal.countMsec()/count, _min, _max);
 

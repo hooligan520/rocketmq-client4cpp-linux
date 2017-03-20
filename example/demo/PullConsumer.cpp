@@ -2,41 +2,7 @@
 #include "DefaultMQPullConsumer.h"
 using namespace rmq;
 
-
-#define MYDEBUG(fmt, args...) 	printf(fmt, ##args)
-#define MYLOG(fmt, args...) 	writelog(fmt, ##args)
-
-std::string g_log_path = "";
 volatile long long g_totalCnt = 0;
-
-static void writelog(const char* fmt, ...)
-{
-	if (g_log_path.empty())
-	{
-		return;
-	}
-
-    static int logFd = -1;
-	if (logFd < 0)
-	{
-		logFd = open(g_log_path.c_str(), O_CREAT | O_RDWR | O_APPEND, 0666);
-	}
-
-    if (logFd > 0)
-    {
-    	char buf[1024*128];
-	    buf[0] = buf[sizeof(buf) - 1] = '\0';
-
-	    va_list ap;
-	    va_start(ap, fmt);
-	    int size = vsnprintf(buf, sizeof(buf), fmt, ap);
-	    va_end(ap);
-
-        write(logFd, buf, size);
-    }
-
-    return;
-}
 
 void PrintResult(PullResult& result)
 {
@@ -106,7 +72,7 @@ int main(int argc, char* argv[])
 		{
 			if (i+1 < argc)
 			{
-				g_log_path = argv[i+1];
+				MyUtil::initLog(argv[i+1]);
 				i++;
 			}
 			else
