@@ -376,13 +376,22 @@ void DefaultMQPullConsumerImpl::sendMessageBack(MessageExt& msg, int delayLevel,
     }
     catch (...)
     {
-    	RMQ_ERROR("sendMessageBack Exception, group: %s", m_pDefaultMQPullConsumer->getConsumerGroup().c_str());
+        RMQ_ERROR("sendMessageBack Exception, group: %s", m_pDefaultMQPullConsumer->getConsumerGroup().c_str());
         Message newMsg(MixAll::getRetryTopic(m_pDefaultMQPullConsumer->getConsumerGroup()),
                        msg.getBody(), msg.getBodyLen());
+
+		std::string originMsgId = msg.getProperty(Message::PROPERTY_ORIGIN_MESSAGE_ID);
+		newMsg.putProperty(Message::PROPERTY_ORIGIN_MESSAGE_ID, UtilAll::isBlank(originMsgId) ? msg.getMsgId()
+                    : originMsgId);
 
         newMsg.setFlag(msg.getFlag());
         newMsg.setProperties(msg.getProperties());
         newMsg.putProperty(Message::PROPERTY_RETRY_TOPIC, msg.getTopic());
+
+        int reTimes = msg.getReconsumeTimes() + 1;
+        newMsg.putProperty(Message::PROPERTY_RECONSUME_TIME, UtilAll::toString(reTimes));
+        newMsg.putProperty(Message::PROPERTY_MAX_RECONSUME_TIMES, UtilAll::toString(m_pDefaultMQPullConsumer->getMaxReconsumeTimes()));
+        newMsg.setDelayTimeLevel(3 + reTimes);
 
         m_pMQClientFactory->getDefaultMQProducer()->send(newMsg);
     }
@@ -611,5 +620,16 @@ void  DefaultMQPullConsumerImpl::checkConfig()
         THROW_MQEXCEPTION(MQClientException, "allocateMessageQueueStrategy is null", -1);
     }
 }
+
+ServiceState DefaultMQPullConsumerImpl::getServiceState()
+{
+    return m_serviceState;
+}
+
+void DefaultMQPullConsumerImpl::setServiceState(ServiceState serviceState)
+{
+    m_serviceState = serviceState;
+}
+
 
 }

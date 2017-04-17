@@ -114,6 +114,12 @@ namespace rmq
         DefaultMQPushConsumer* getDefaultMQPushConsumer() ;
         ConsumerStatManager* getConsumerStatManager();
 
+		MQClientFactory* getmQClientFactory();
+		void setmQClientFactory(MQClientFactory* mQClientFactory);
+
+		ServiceState getServiceState();
+		void setServiceState(ServiceState serviceState);
+
     private:
         /**
         * 通过Tag过滤时，会存在offset不准确的情况，需要纠正

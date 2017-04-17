@@ -794,6 +794,7 @@ void DefaultMQPushConsumerImpl::sendMessageBack(MessageExt& msg, int delayLevel,
 
         int reTimes = msg.getReconsumeTimes() + 1;
         newMsg.putProperty(Message::PROPERTY_RECONSUME_TIME, UtilAll::toString(reTimes));
+        newMsg.putProperty(Message::PROPERTY_MAX_RECONSUME_TIMES, UtilAll::toString(m_pDefaultMQPushConsumer->getMaxReconsumeTimes()));
         newMsg.setDelayTimeLevel(3 + reTimes);
 
         m_pMQClientFactory->getDefaultMQProducer()->send(newMsg);
@@ -1026,8 +1027,26 @@ void DefaultMQPushConsumerImpl::setConsumeOrderly(bool consumeOrderly)
 }
 
 
+MQClientFactory* DefaultMQPushConsumerImpl::getmQClientFactory()
+{
+    return m_pMQClientFactory;
+}
+
+void DefaultMQPushConsumerImpl::setmQClientFactory(MQClientFactory* mQClientFactory)
+{
+    m_pMQClientFactory = mQClientFactory;
+}
 
 
+ServiceState DefaultMQPushConsumerImpl::getServiceState()
+{
+    return m_serviceState;
+}
+
+void DefaultMQPushConsumerImpl::setServiceState(ServiceState serviceState)
+{
+    m_serviceState = serviceState;
+}
 
 }
 

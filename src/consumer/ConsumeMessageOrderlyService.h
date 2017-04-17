@@ -30,96 +30,100 @@
 
 namespace rmq
 {
-  class DefaultMQPushConsumerImpl;
-  class MessageListenerOrderly;
-  class DefaultMQPushConsumer;
-  class ConsumeMessageOrderlyService;
+class DefaultMQPushConsumerImpl;
+class MessageListenerOrderly;
+class DefaultMQPushConsumer;
+class ConsumeMessageOrderlyService;
 
-  class ConsumeOrderlyRequest: public kpr::ThreadPoolWork
-  {
-  public:
-      ConsumeOrderlyRequest(ProcessQueue* pProcessQueue,
-                            const MessageQueue& messageQueue,
-                            ConsumeMessageOrderlyService* pService);
-      ~ConsumeOrderlyRequest();
+class ConsumeOrderlyRequest: public kpr::ThreadPoolWork
+{
+public:
+    ConsumeOrderlyRequest(ProcessQueue *pProcessQueue,
+                          const MessageQueue &messageQueue,
+                          ConsumeMessageOrderlyService *pService);
+    ~ConsumeOrderlyRequest();
 
-      virtual void Do();
+    virtual void Do();
 
-      ProcessQueue* getProcessQueue()
-      {
-          return m_pProcessQueue;
-      }
+    ProcessQueue *getProcessQueue()
+    {
+        return m_pProcessQueue;
+    }
 
-      MessageQueue& getMessageQueue()
-      {
-          return m_messageQueue;
-      }
+    MessageQueue &getMessageQueue()
+    {
+        return m_messageQueue;
+    }
 
-  private:
-      ProcessQueue* m_pProcessQueue;
-      MessageQueue m_messageQueue;
-      ConsumeMessageOrderlyService* m_pService;
-  };
+private:
+    ProcessQueue *m_pProcessQueue;
+    MessageQueue m_messageQueue;
+    ConsumeMessageOrderlyService *m_pService;
+};
 
 
-  /**
-  * 顺序消费消息服务
-  *
-  */
-  class ConsumeMessageOrderlyService : public ConsumeMessageService
-  {
-  public:
-      ConsumeMessageOrderlyService(DefaultMQPushConsumerImpl* pDefaultMQPushConsumerImpl,
-                                   MessageListenerOrderly* pMessageListener);
-	  ~ConsumeMessageOrderlyService();
+/**
+* 顺序消费消息服务
+*
+*/
+class ConsumeMessageOrderlyService : public ConsumeMessageService
+{
+public:
+	static const long s_MaxTimeConsumeContinuously = 60000;
 
-      void start();
-      void shutdown();
-      void unlockAllMQ();
-      void lockMQPeriodically();
-      bool lockOneMQ(MessageQueue& mq);
-      void tryLockLaterAndReconsume(MessageQueue& messageQueue,
-                                    ProcessQueue* pProcessQueue,
-                                    long long delayMills);
-      bool processConsumeResult(std::list<MessageExt*>& msgs,
-                                ConsumeOrderlyStatus status,
-                                ConsumeOrderlyContext& context,
-                                ConsumeOrderlyRequest& consumeRequest);
+public:
+    ConsumeMessageOrderlyService(DefaultMQPushConsumerImpl
+                                 *pDefaultMQPushConsumerImpl,
+                                 MessageListenerOrderly *pMessageListener);
+    ~ConsumeMessageOrderlyService();
 
-      ConsumerStat& getConsumerStat();
-      /**
-      * 在Consumer本地定时线程中定时重试
-      */
-      void submitConsumeRequestLater(ProcessQueue* pProcessQueue,
-                                     const MessageQueue& messageQueue,
-                                     long long suspendTimeMillis);
+    void start();
+    void shutdown();
 
-      void submitConsumeRequest(std::list<MessageExt*>& msgs,
-                                ProcessQueue* pProcessQueue,
-                                const MessageQueue& messageQueue,
-                                bool dispathToConsume);
+    void unlockAllMQ();
+    void lockMQPeriodically();
+    bool lockOneMQ(MessageQueue &mq);
+    void tryLockLaterAndReconsume(MessageQueue &messageQueue,
+                                  ProcessQueue *pProcessQueue,
+                                  long long delayMills);
+    bool processConsumeResult(std::list<MessageExt *> &msgs,
+                              ConsumeOrderlyStatus status,
+                              ConsumeOrderlyContext &context,
+                              ConsumeOrderlyRequest &consumeRequest);
+    bool checkReconsumeTimes(std::list<MessageExt *> &msgs);
+    bool sendMessageBack(MessageExt &msg);
+    ConsumerStat& getConsumerStat();
 
-      void updateCorePoolSize(int corePoolSize);
-      MessageQueueLock& getMessageQueueLock();
-      std::string& getConsumerGroup();
-      MessageListenerOrderly* getMessageListener();
-      DefaultMQPushConsumerImpl* getDefaultMQPushConsumerImpl();
-      DefaultMQPushConsumer* getDefaultMQPushConsumer();
+    /**
+    * 在Consumer本地定时线程中定时重试
+    */
+    void submitConsumeRequestLater(ProcessQueue *pProcessQueue,
+                                   const MessageQueue &messageQueue,
+                                   long long suspendTimeMillis);
 
-  public:
-      static long s_MaxTimeConsumeContinuously;
+    void submitConsumeRequest(std::list<MessageExt *> &msgs,
+                              ProcessQueue *pProcessQueue,
+                              const MessageQueue &messageQueue,
+                              bool dispathToConsume);
 
-  private:
-      volatile bool m_stoped;
-      DefaultMQPushConsumerImpl* m_pDefaultMQPushConsumerImpl;
-      DefaultMQPushConsumer* m_pDefaultMQPushConsumer;
-      MessageListenerOrderly* m_pMessageListener;
-      std::string m_consumerGroup;
-      MessageQueueLock m_messageQueueLock;
+    void updateCorePoolSize(int corePoolSize);
+    MessageQueueLock &getMessageQueueLock();
+    std::string &getConsumerGroup();
+    MessageListenerOrderly *getMessageListener();
+    DefaultMQPushConsumerImpl *getDefaultMQPushConsumerImpl();
+    DefaultMQPushConsumer *getDefaultMQPushConsumer();
 
-      kpr::ThreadPoolPtr m_pConsumeExecutor;
-      kpr::TimerThreadPtr m_scheduledExecutorService;
-  };
+private:
+    volatile bool m_stoped;
+    DefaultMQPushConsumerImpl *m_pDefaultMQPushConsumerImpl;
+    DefaultMQPushConsumer *m_pDefaultMQPushConsumer;
+    MessageListenerOrderly *m_pMessageListener;
+    std::string m_consumerGroup;
+    MessageQueueLock m_messageQueueLock;
+
+    kpr::ThreadPoolPtr m_pConsumeExecutor;
+    kpr::TimerThreadPtr m_scheduledExecutorService;
+};
 }
 
 #endif
